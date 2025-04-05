@@ -19,7 +19,7 @@ ouverture=$(echo "$html" | pup 'dd[data-test="open"] span.key-info_dd-numeric__Z
 
 # Variation sur 1 an (data-test="oneYearReturn")
 # On récupère les spans contenant le nombre et le symbole %, puis on les joint
-variation1an=$(echo "$html" | pup 'dd[data-test="oneYearReturn"] span.key-info_dd-numeric__ZQFIs span text{}' | grep -E '[0-9\-,]' | paste -sd "" - | tr -d '\n')
+variation1an=$(echo "$html" | pup 'dd[data-test="oneYearReturn"] span.key-info_dd-numeric__ZQFIs span text{}' | grep -E '[0-9,%.-]' | paste -sd "" - | tr -d '\n')
 
 # Volume (data-test="volume")
 volume=$(echo "$html" | pup 'dd[data-test="volume"] span.key-info_dd-numeric__ZQFIs span text{}' | grep -E '[0-9]' | head -n1 | tr -d '\n')
