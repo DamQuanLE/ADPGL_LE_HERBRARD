@@ -1,0 +1,11 @@
+# URL du site
+URL="https://fr.investing.com/indices/france-40"
+
+# Télécharge le contenu de la page
+html=$(curl -s "$URL")
+
+# Utilise grep avec l'option -oP et \K pour extraire le contenu de la div avec data-test="instrument-price-last"
+result=$(echo "$html" | grep -oP '<div[^>]data-test="instrument-price-last"[^>]>\K[^<]+')
+
+# Affiche le résultat
+echo "Valeur extraite : $result"
