@@ -35,7 +35,7 @@ ecartjour=$(echo "$html" | pup 'dd[data-test="dailyRange"] span.key-info_dd-nume
 ecart52=$(echo "$html" | pup 'dd[data-test="weekRange"] span.key-info_dd-numeric__ZQFIs span text{}' | grep -E '[0-9,]' | paste -sd "-" - | tr -d '\n')
 
 # Sentiment technique
-sentiment=$(echo "$html" | pup 'div[data-test="technical-summary-title"] text{}' | tr -d '\n')
+sentiment=$(echo "$html" | pup 'div.rounded-full.text-center.font-semibold text{}' | tr -d '\n')
 
 # Affichage final
 echo "═══════════════════════════════════════"
