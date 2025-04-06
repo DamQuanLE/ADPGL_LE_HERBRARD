@@ -8,7 +8,6 @@ import time
 import subprocess  # Pour l'appel au script bash
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-
 DATA_FILE = "cac40_data.txt"
 
 # Enregistrement du temps de démarrage pour le compte à rebours
@@ -19,20 +18,38 @@ global_last_update = "N/A"
 def load_data():
     try:
         df = pd.read_csv(
-            DATA_FILE, 
-            sep = ';',
+            DATA_FILE,
+            sep=';',
             names=[
                 'timestamp', 'prix', 'variation', 'cloture', 'ouverture',
                 'variation1an', 'volume', 'volumemoyen', 'ecartjour', 'ecart52', 'sentiment'
-            ]
+            ],
+            index_col=False
         )
+        print("Données chargées :")
+        print(df.head())
     except Exception as e:
         print(f"Erreur de chargement des données : {e}")
         df = pd.DataFrame(columns=[
             'timestamp', 'prix', 'variation', 'cloture', 'ouverture',
             'variation1an', 'volume', 'volumemoyen', 'ecartjour', 'ecart52', 'sentiment'
         ])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    
+    # Conversion de la colonne timestamp en datetime
+    df['timestamp'] = pd.to_datetime(
+        df['timestamp'].str.strip(), 
+        format='%Y-%m-%d %H:%M:%S', 
+        errors='coerce'
+    )
+    
+    # Conversion de la colonne prix :
+    # - Supprimer le séparateur de milliers (le point)
+    # - Remplacer la virgule décimale par un point
+    # - Convertir en numérique
+    df['prix'] = df['prix'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+    df['prix'] = pd.to_numeric(df['prix'], errors='coerce')
+    
+    # Tri par date croissante
     df = df.sort_values('timestamp')
     return df
 
@@ -57,19 +74,23 @@ def calculate_daily_report(df):
     }
 
 def create_figure(df):
+    # Filtrer uniquement les lignes avec un prix numérique
     df_filtered = df[pd.to_numeric(df['prix'], errors='coerce').notna()]
     if df_filtered.empty:
         fig = go.Figure()
     else:
+        # Conversion du prix en float et tri par date pour garantir l'ordre
         df_filtered['prix'] = df_filtered['prix'].astype(float)
+        df_filtered = df_filtered.sort_values('timestamp')
         fig = go.Figure(
             data=[
                 go.Scatter(
                     x=df_filtered['timestamp'],
                     y=df_filtered['prix'],
-                    mode='lines+markers',
-                    name='CAC 40',
-                    line={'color': 'cyan'}
+                    mode='markers+lines',  # Affichage des points et lignes de connexion
+                    marker=dict(size=6),
+                    line=dict(shape='linear', color='cyan'),
+                    name='CAC 40'
                 )
             ]
         )
@@ -79,9 +100,13 @@ def create_figure(df):
             'title': {'text': 'Date', 'font': {'color': 'white'}},
             'tickfont': {'color': 'white'},
             'gridcolor': 'gray',
-            'tickformat': '%d/%m/%Y'  # Format de la date
+            'tickformat': '%d/%m/%Y'
         },
-        yaxis={'title': {'text': 'Valeur', 'font': {'color': 'white'}}, 'tickfont': {'color': 'white'}, 'gridcolor': 'gray'},
+        yaxis={
+            'title': {'text': 'Valeur', 'font': {'color': 'white'}},
+            'tickfont': {'color': 'white'},
+            'gridcolor': 'gray'
+        },
         paper_bgcolor='black',
         plot_bgcolor='black',
         font={'color': 'white'}
@@ -90,12 +115,15 @@ def create_figure(df):
 
 def style_percentage(value):
     try:
-        val_str = value.replace('(', '').replace(')', '').replace('%', '').strip()
+        # Remplacer la virgule par un point pour la conversion
+        val_str = value.replace(',', '.')
+        # Supprimer parenthèses et le signe %
+        val_str = val_str.replace('(', '').replace(')', '').replace('%', '').strip()
         val_float = float(val_str)
         color = 'red' if val_float < 0 else 'green'
         display_value = f"{val_float:.2f}%"
     except:
-        color = 'green'
+        color = 'white'
         display_value = value
     return html.Span(display_value, style={"color": color})
 
@@ -118,7 +146,7 @@ app.layout = html.Div([
             ),
         ], align="center"),
         
-        # 2) Paragraphe explicatif placé directement sous le titre
+        # 2) Paragraphe explicatif
         html.Div([
             html.P(
                 "Ce projet a été développé par LE et HEBRARD pour l'affichage en temps réel des valeurs du CAC 40. "
@@ -128,7 +156,7 @@ app.layout = html.Div([
             )
         ], style={"backgroundColor": "#333", "borderRadius": "8px", "marginTop": "10px"}),
         
-        # 3) Section "Prochaine mise à jour" placée juste sous le paragraphe
+        # 3) Section "Prochaine mise à jour"
         html.Div([
             html.H3("Prochaine mise à jour dans :", style={"fontWeight": "bold", "color": "white"}),
             html.Span(id="countdown", style={"fontSize": "22px", "fontWeight": "bold", "color": "white"})
@@ -140,17 +168,14 @@ app.layout = html.Div([
         dbc.Row([
             dbc.Col([
                 html.H3("Valeur actuelle", style={'color': 'white'}),
-                # Affiche la donnée issue de 'variation'
                 html.Div(id="live-prix", style={"fontSize": "24px", "fontWeight": "bold"})
             ], md=4),
             dbc.Col([
                 html.H3("Variation", style={'color': 'white'}),
-                # Affiche la donnée issue de 'prix' (avec coloration)
                 html.Div(id="live-variation", style={"fontSize": "24px", "fontWeight": "bold"})
             ], md=4),
             dbc.Col([
                 html.H3("Dernière mise à jour", style={'color': 'white'}),
-                # Affiche l'heure à laquelle le compte à rebours s'est terminé (mise à jour dans le callback)
                 html.Div(id="live-timestamp", style={"fontSize": "24px", "fontWeight": "bold"})
             ], md=4),
         ]),
@@ -245,8 +270,7 @@ def update_countdown(n):
     """Compte à rebours avant la prochaine mise à jour (5 minutes)."""
     now_sec = int(time.time())
     elapsed = now_sec - start_time
-    # On calcule le temps restant pour obtenir 0 à la fin
-    time_left = (300 - (elapsed % 300)) % 300
+    time_left = (300 - (elapsed % 300)) % 300  # Temps restant pour atteindre 0
     minutes = time_left // 60
     seconds = time_left % 60
     return f"{minutes:02d}:{seconds:02d}"
@@ -277,8 +301,8 @@ def update_dashboard(n):
     Callback principal : se déclenche toutes les 5 minutes, met à jour le tableau de bord 
     et appelle un script bash pour modifier les valeurs du site.
     
-    - "Valeur actuelle" affiche la donnée issue de 'variation'.
-    - "Variation" affiche la donnée issue de 'prix'.
+    - "Valeur actuelle" affiche la donnée issue de 'prix'.
+    - "Variation" affiche la donnée issue de 'variation'.
     - "Dernière mise à jour" affiche l'heure à laquelle le compte à rebours a atteint 00:00.
     """
     global global_last_update
@@ -297,16 +321,14 @@ def update_dashboard(n):
                 "N/A", "N/A", "N/A", "N/A")
     
     last_row = df.iloc[-1]
-    # Inversion : "Valeur actuelle" affiche la donnée issue de 'variation'
-    valeur_actuelle = str(last_row.get('variation', 'N/A'))
-    # "Variation" affiche la donnée issue de 'prix'
-    variation_value = str(last_row.get('prix', 'N/A'))
-    
-    # Calcul du temps restant
+    # "Valeur actuelle" : donnée issue de 'prix'
+    valeur_actuelle = str(last_row.get('prix', 'N/A'))
+    # "Variation" : donnée issue de 'variation'
+    variation_value = str(last_row.get('variation', 'N/A'))
+
     now_sec = int(time.time())
     elapsed = now_sec - start_time
     time_left = (300 - (elapsed % 300)) % 300
-    # Si le compte à rebours a atteint 0, on met à jour la variable globale
     if time_left == 0:
         global_last_update = datetime.datetime.now().strftime("%H:%M:%S")
     
@@ -324,8 +346,12 @@ def update_dashboard(n):
     if now_dt.hour >= 20:
         report = calculate_daily_report(df)
     else:
-        report = {'open': 'En attente (20h)', 'close': 'En attente (20h)', 
-                  'volatility': 'En attente (20h)', 'evolution': 'En attente (20h)'}
+        report = {
+            'open': 'En attente (20h)', 
+            'close': 'En attente (20h)', 
+            'volatility': 'En attente (20h)', 
+            'evolution': 'En attente (20h)'
+        }
     
     daily_open = report['open']
     daily_close = report['close']
