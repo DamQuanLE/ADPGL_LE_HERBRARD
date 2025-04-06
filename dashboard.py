@@ -20,6 +20,7 @@ def load_data():
     try:
         df = pd.read_csv(
             DATA_FILE, 
+            sep = ';',
             names=[
                 'timestamp', 'prix', 'variation', 'cloture', 'ouverture',
                 'variation1an', 'volume', 'volumemoyen', 'ecartjour', 'ecart52', 'sentiment'
