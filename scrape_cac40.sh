@@ -65,7 +65,7 @@ TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 [ -z "$sentiment" ] && sentiment="N/A"
 
 # Enregistrer les données en temps réel dans cac40_data.txt (append)
-echo "$TIMESTAMP,$prix,$variation,$cloture,$ouverture,$variation1an,$volume,$volumemoyen,$ecartjour,$ecart52,$sentiment" >> "$DATA_FILE"
+echo "$TIMESTAMP;$prix;$variation;$cloture;$ouverture;$variation1an;$volume;$volumemoyen;$ecartjour;$ecart52;$sentiment" >> "$DATA_FILE"
 
 # Affichage final des données en temps réel
 echo "═══════════════════════════════════════"
