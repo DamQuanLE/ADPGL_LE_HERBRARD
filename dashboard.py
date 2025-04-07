@@ -6,6 +6,7 @@ import pandas as pd
 import datetime
 import time
 import subprocess  # Pour l'appel au script bash
+import os  # Pour vérifier la date de modification du fichier
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 DATA_FILE = "cac40_data.txt"
@@ -14,9 +15,25 @@ DATA_FILE = "cac40_data.txt"
 start_time = int(time.time())
 # Global pour mémoriser la dernière mise à jour (lorsque le compte à rebours atteint 0)
 global_last_update = "N/A"
+# Global pour stocker la dernière date de modification du fichier
+last_file_mod_time = 0
 
 def load_data():
     try:
+        # Vérifier si le fichier existe et contient des données
+        if not os.path.exists(DATA_FILE) or os.path.getsize(DATA_FILE) == 0:
+            print(f"Le fichier {DATA_FILE} n'existe pas ou est vide")
+            return pd.DataFrame(columns=[
+                'timestamp', 'prix', 'variation', 'cloture', 'ouverture',
+                'variation1an', 'volume', 'volumemoyen', 'ecartjour', 'ecart52', 'sentiment'
+            ])
+            
+        # Debug: Afficher le contenu brut du fichier
+        with open(DATA_FILE, 'r') as f:
+            content = f.read()
+            print("Contenu brut du fichier:")
+            print(content[:500])  # Afficher les 500 premiers caractères
+        
         df = pd.read_csv(
             DATA_FILE,
             sep=';',
@@ -28,9 +45,14 @@ def load_data():
         )
         print("Données chargées :")
         print(df.head())
+        
+        # Debug: vérifier les types de colonnes
+        print("Types de données:")
+        print(df.dtypes)
+        
     except Exception as e:
         print(f"Erreur de chargement des données : {e}")
-        df = pd.DataFrame(columns=[
+        return pd.DataFrame(columns=[
             'timestamp', 'prix', 'variation', 'cloture', 'ouverture',
             'variation1an', 'volume', 'volumemoyen', 'ecartjour', 'ecart52', 'sentiment'
         ])
@@ -43,15 +65,48 @@ def load_data():
     )
     
     # Conversion de la colonne prix :
-    # - Supprimer le séparateur de milliers (le point)
-    # - Remplacer la virgule décimale par un point
-    # - Convertir en numérique
+    # Ajouter des logs pour le débogage
+    print("Valeurs de prix avant conversion:")
+    print(df['prix'].head())
+    
+    # S'assurer que prix est de type string avant d'appliquer des méthodes string
+    df['prix'] = df['prix'].astype(str)
     df['prix'] = df['prix'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+    
+    print("Valeurs de prix après conversion des séparateurs:")
+    print(df['prix'].head())
+    
     df['prix'] = pd.to_numeric(df['prix'], errors='coerce')
+    
+    print("Valeurs de prix après conversion numérique:")
+    print(df['prix'].head())
     
     # Tri par date croissante
     df = df.sort_values('timestamp')
     return df
+
+def check_file_updated():
+    """Vérifie si le fichier de données a été mis à jour depuis la dernière lecture"""
+    global last_file_mod_time
+    try:
+        current_mod_time = os.path.getmtime(DATA_FILE)
+        if current_mod_time > last_file_mod_time:
+            last_file_mod_time = current_mod_time
+            return True
+        return False
+    except Exception as e:
+        print(f"Erreur lors de la vérification du fichier: {e}")
+        return False
+
+def update_data_file():
+    """Appelle le script de scraping pour mettre à jour le fichier de données"""
+    try:
+        print("Mise à jour des données CAC40...")
+        result = subprocess.call(["bash", "scrape_cac40.sh"])
+        return result == 0  # Retourne True si le script s'est exécuté avec succès
+    except Exception as e:
+        print(f"Erreur lors de l'appel au script de scraping: {e}")
+        return False
 
 def calculate_daily_report(df):
     today = datetime.datetime.now().strftime('%Y-%m-%d')
@@ -162,6 +217,15 @@ app.layout = html.Div([
             html.Span(id="countdown", style={"fontSize": "22px", "fontWeight": "bold", "color": "white"})
         ], style={"textAlign": "center", "padding": "10px", "marginTop": "10px"}),
         
+        # Bouton de mise à jour manuelle
+        html.Div([
+            html.Button("Mettre à jour maintenant", id="update-button", 
+                        style={"backgroundColor": "#0077cc", "color": "white", 
+                               "padding": "10px 20px", "border": "none", 
+                               "borderRadius": "5px", "cursor": "pointer"}),
+            html.Span(id="update-status", style={"marginLeft": "15px", "color": "white"})
+        ], style={"textAlign": "center", "marginTop": "10px", "marginBottom": "10px"}),
+        
         html.Hr(style={'borderColor': 'white'}),
         
         # 4) Contenu principal : Valeur actuelle, Variation et Dernière mise à jour
@@ -248,7 +312,10 @@ app.layout = html.Div([
         # Intervalles de mise à jour
         dcc.Interval(id="interval-component", interval=5*60*1000, n_intervals=0),
         dcc.Interval(id="interval-time", interval=1000, n_intervals=0),
-        dcc.Interval(id="interval-countdown", interval=1000, n_intervals=0)
+        dcc.Interval(id="interval-countdown", interval=1000, n_intervals=0),
+        
+        # Status des mises à jour - pour stocker les résultats intermédiaires
+        dcc.Store(id="file-check-store"),
     ], fluid=True)
 ], style={'backgroundColor': 'black', 'minHeight': '100vh', 'padding': '20px'})
 
@@ -259,21 +326,44 @@ app.layout = html.Div([
     Input("interval-time", "n_intervals")
 )
 def update_current_time(n):
-    """Met à jour l’heure (HH:MM:SS)."""
+    """Met à jour l'heure (HH:MM:SS)."""
     return datetime.datetime.now().strftime("%H:%M:%S")
 
 @app.callback(
-    Output("countdown", "children"),
-    Input("interval-countdown", "n_intervals")
+    [Output("countdown", "children"),
+     Output("file-check-store", "data")],
+    [Input("interval-countdown", "n_intervals")]
 )
 def update_countdown(n):
-    """Compte à rebours avant la prochaine mise à jour (5 minutes)."""
+    """
+    Compte à rebours avant la prochaine mise à jour (5 minutes).
+    Vérifie aussi si le fichier a été mis à jour entre temps.
+    """
     now_sec = int(time.time())
     elapsed = now_sec - start_time
     time_left = (300 - (elapsed % 300)) % 300  # Temps restant pour atteindre 0
     minutes = time_left // 60
     seconds = time_left % 60
-    return f"{minutes:02d}:{seconds:02d}"
+    
+    # Vérifier si le fichier a été mis à jour
+    file_updated = check_file_updated()
+    
+    return f"{minutes:02d}:{seconds:02d}", {"updated": file_updated}
+
+@app.callback(
+    Output("update-status", "children"),
+    [Input("update-button", "n_clicks")],
+    prevent_initial_call=True
+)
+def manual_update(n_clicks):
+    """Gère la mise à jour manuelle des données en appelant le script bash"""
+    if n_clicks:
+        success = update_data_file()
+        if success:
+            return "Mise à jour réussie!"
+        else:
+            return "Échec de la mise à jour. Vérifiez les journaux."
+    return ""
 
 @app.callback(
     [
@@ -294,18 +384,34 @@ def update_countdown(n):
         Output("live-ecart52", "children"),
         Output("live-sentiment", "children")
     ],
-    [Input("interval-component", "n_intervals")]
+    [Input("interval-component", "n_intervals"),
+     Input("file-check-store", "data"),
+     Input("update-status", "children")]
 )
-def update_dashboard(n):
+def update_dashboard(n_intervals, file_check_data, update_status):
     """
-    Callback principal : se déclenche toutes les 5 minutes, met à jour le tableau de bord 
-    et appelle un script bash pour modifier les valeurs du site.
-    
-    - "Valeur actuelle" affiche la donnée issue de 'prix'.
-    - "Variation" affiche la donnée issue de 'variation'.
-    - "Dernière mise à jour" affiche l'heure à laquelle le compte à rebours a atteint 00:00.
+    Callback principal : se déclenche dans l'un de ces cas:
+    1. Toutes les 5 minutes (interval-component)
+    2. Quand le fichier de données est modifié (détecté par file-check-store)
+    3. Après une mise à jour manuelle (update-status)
     """
     global global_last_update
+
+    # Si c'est une mise à jour régulière et que le compte à rebours a atteint 0, appel du script bash
+    now_sec = int(time.time())
+    elapsed = now_sec - start_time
+    time_left = (300 - (elapsed % 300)) % 300
+    if time_left == 0:
+        update_data_file()
+        global_last_update = datetime.datetime.now().strftime("%H:%M:%S")
+    
+    # Si le fichier a été mis à jour par un moyen externe, on met à jour le timestamp
+    if file_check_data and file_check_data.get("updated", False):
+        global_last_update = datetime.datetime.now().strftime("%H:%M:%S")
+    
+    # Si mise à jour manuelle réussie, on met aussi à jour le timestamp
+    if update_status == "Mise à jour réussie!":
+        global_last_update = datetime.datetime.now().strftime("%H:%M:%S")
 
     df = load_data()
     if df.empty:
@@ -326,12 +432,6 @@ def update_dashboard(n):
     # "Variation" : donnée issue de 'variation'
     variation_value = str(last_row.get('variation', 'N/A'))
 
-    now_sec = int(time.time())
-    elapsed = now_sec - start_time
-    time_left = (300 - (elapsed % 300)) % 300
-    if time_left == 0:
-        global_last_update = datetime.datetime.now().strftime("%H:%M:%S")
-    
     cloture = str(last_row.get('cloture', 'N/A'))
     ouverture = str(last_row.get('ouverture', 'N/A'))
     variation1an = str(last_row.get('variation1an', 'N/A'))
@@ -359,9 +459,6 @@ def update_dashboard(n):
     daily_evolution = report['evolution']
 
     styled_variation = style_percentage(variation_value)
-    
-    # Appel du script bash pour mettre à jour les valeurs du site
-    subprocess.call(["bash", "update_site.sh"])
 
     return (
         html.Span(valeur_actuelle, style={"color": "white"}),
@@ -383,4 +480,8 @@ def update_dashboard(n):
     )
 
 if __name__ == "__main__":
+    # Initialiser le temps de modification du fichier au démarrage
+    if os.path.exists(DATA_FILE):
+        last_file_mod_time = os.path.getmtime(DATA_FILE)
+    
     app.run(debug=True, host="0.0.0.0", port=8050)
