@@ -5,8 +5,8 @@ import plotly.graph_objs as go
 import pandas as pd
 import datetime
 import time
-import subprocess  # Pour l'appel au script bash
-import os  # Pour vérifier la date de modification du fichier
+import subprocess  
+import os  
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 DATA_FILE = "cac40_data.txt"
@@ -32,7 +32,7 @@ def load_data():
         with open(DATA_FILE, 'r') as f:
             content = f.read()
             print("Contenu brut du fichier:")
-            print(content[:500])  # Afficher les 500 premiers caractères
+            print(content[:500]) 
         
         df = pd.read_csv(
             DATA_FILE,
@@ -480,7 +480,6 @@ def update_dashboard(n_intervals, file_check_data, update_status):
     )
 
 if __name__ == "__main__":
-    # Initialiser le temps de modification du fichier au démarrage
     if os.path.exists(DATA_FILE):
         last_file_mod_time = os.path.getmtime(DATA_FILE)
     
